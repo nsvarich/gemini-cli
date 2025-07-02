@@ -39,6 +39,7 @@ import {
 } from './contentGenerator.js';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import { DEFAULT_GEMINI_FLASH_MODEL } from '../config/models.js';
+import { writeFile } from 'fs/promises';
 
 function isThinkingSupported(model: string) {
   if (model.startsWith('gemini-2.5')) return true;
@@ -300,8 +301,26 @@ export class GeminiClient {
         throw error;
       }
       try {
-        return JSON.parse(text);
+        // Check for JSON code fence and extract the content if present
+        let jsonContent = text;
+        // Match content within triple backticks, optionally with 'json' language identifier
+        const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch && fenceMatch[1]) {
+          jsonContent = fenceMatch[1].trim();
+          console.log('Trimmed JSON fence on response');
+        }
+        return JSON.parse(jsonContent);
       } catch (parseError) {
+        try {
+          // Write the problematic text to a file
+          await writeFile('/tmp/gemini-json-parse-error.txt', text);
+          console.log(
+            'JSON parse error. Full text written to /tmp/gemini-json-parse-error.txt',
+          );
+        } catch (fileError) {
+          console.log('Failed to write parse error to file:', fileError);
+        }
+
         await reportError(
           parseError,
           'Failed to parse JSON response from generateJson.',
