@@ -49,7 +49,6 @@ function isThinkingSupported(model: string) {
 export class GeminiClient {
   private chat?: GeminiChat;
   private contentGenerator?: ContentGenerator;
-  private model: string;
   private embeddingModel: string;
   private generateContentConfig: GenerateContentConfig = {
     temperature: 0,
@@ -63,7 +62,6 @@ export class GeminiClient {
       setGlobalDispatcher(new ProxyAgent(config.getProxy() as string));
     }
 
-    this.model = config.getModel();
     this.embeddingModel = config.getEmbeddingModel();
   }
 
@@ -188,7 +186,9 @@ export class GeminiClient {
     try {
       const userMemory = this.config.getUserMemory();
       const systemInstruction = getCoreSystemPrompt(userMemory);
-      const generateContentConfigWithThinking = isThinkingSupported(this.model)
+      const generateContentConfigWithThinking = isThinkingSupported(
+        this.config.getModel(),
+      )
         ? {
             ...this.generateContentConfig,
             thinkingConfig: {
@@ -364,7 +364,7 @@ export class GeminiClient {
     generationConfig: GenerateContentConfig,
     abortSignal: AbortSignal,
   ): Promise<GenerateContentResponse> {
-    const modelToUse = this.model;
+    const modelToUse = this.config.getModel();
     const configToUse: GenerateContentConfig = {
       ...this.generateContentConfig,
       ...generationConfig,
@@ -458,13 +458,15 @@ export class GeminiClient {
       return null;
     }
 
+    const model = this.config.getModel();
+
     let { totalTokens: originalTokenCount } =
       await this.getContentGenerator().countTokens({
-        model: this.model,
+        model,
         contents: curatedHistory,
       });
     if (originalTokenCount === undefined) {
-      console.warn(`Could not determine token count for model ${this.model}.`);
+      console.warn(`Could not determine token count for model ${model}.`);
       originalTokenCount = 0;
     }
 
@@ -472,7 +474,7 @@ export class GeminiClient {
     if (
       !force &&
       originalTokenCount <
-        this.TOKEN_THRESHOLD_FOR_SUMMARIZATION * tokenLimit(this.model)
+        this.TOKEN_THRESHOLD_FOR_SUMMARIZATION * tokenLimit(model)
     ) {
       return null;
     }
@@ -498,7 +500,8 @@ export class GeminiClient {
 
     const { totalTokens: newTokenCount } =
       await this.getContentGenerator().countTokens({
-        model: this.model,
+        // model might change after calling `sendMessage`, so we get the newest value from config
+        model: this.config.getModel(),
         contents: this.getChat().getHistory(),
       });
     if (newTokenCount === undefined) {
@@ -522,7 +525,7 @@ export class GeminiClient {
       return null;
     }
 
-    const currentModel = this.model;
+    const currentModel = this.config.getModel();
     const fallbackModel = DEFAULT_GEMINI_FLASH_MODEL;
 
     // Don't fallback if already using Flash model
@@ -537,7 +540,6 @@ export class GeminiClient {
         const accepted = await fallbackHandler(currentModel, fallbackModel);
         if (accepted) {
           this.config.setModel(fallbackModel);
-          this.model = fallbackModel;
           return fallbackModel;
         }
       } catch (error) {
